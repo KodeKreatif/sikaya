@@ -132,15 +132,35 @@ Disposition = module.exports = function(app) {
                     letter.edit(req.params.id, data, function() {
                       shareDisposition(v._id, function(err) {
                         console.log(err);
-                        utils.render(req, res, 'disposition-create', vals, 'base-authenticated');
+                        if (req.api) {
+                          if (vals.error) {
+                            res(vals.error);
+                          } else {
+                            res(null);
+                          }
+                        } else {
+                          utils.render(req, res, 'disposition-create', vals, 'base-authenticated');
+                        }
                       });
                     });
                   } else {
-                    utils.render(req, res, 'disposition-create', vals, 'base-authenticated');
+                    if (req.api) {
+                      if (vals.error) {
+                        res(vals.error);
+                      } else {
+                        res(null);
+                      }
+                    } else {
+                      utils.render(req, res, 'disposition-create', vals, 'base-authenticated');
+                    }
                   }
                 } else {
                   // Should not go here
-                  utils.render(req, res, 'disposition-create', vals, 'base-authenticated');
+                  if (req.api) {
+                      res("Letter doesn't exists");
+                  } else {
+                    utils.render(req, res, 'disposition-create', vals, 'base-authenticated');
+                  }
                 }
               });
           } else {
@@ -150,7 +170,15 @@ Disposition = module.exports = function(app) {
               vals.error = v.errors.Data;  
             }
             
-            utils.render(req, res, 'disposition-create', vals, 'base-authenticated');
+            if (req.api) {
+              if (vals.error) {
+                res(vals.error);
+              } else {
+                res(null);
+              }
+            } else {
+              utils.render(req, res, 'disposition-create', vals, 'base-authenticated');
+            }
           }
         });
       } else {
@@ -209,7 +237,15 @@ Disposition = module.exports = function(app) {
                     }
                   }
                 }
-                utils.render(req, res, 'disposition-create', vals, 'base-authenticated');
+                if (req.api) {
+                  if (vals.error) {
+                    res(vals.error);
+                  } else {
+                    res(null);
+                  }
+                } else {
+                  utils.render(req, res, 'disposition-create', vals, 'base-authenticated');
+                }
               });
          
             } else {
@@ -217,15 +253,22 @@ Disposition = module.exports = function(app) {
               vals.unsuccessful = true;
               vals.error = 'Create new disposition failed, not valid letter.';
                   
-              res.redirect('/dispositions');
+              if (req.api) {
+                res(vals.error);
+              } else {
+                res.redirect('/dispositions');
+              }
             }
           });
         } else {
           // Redirect to disposition list
           vals.unsuccessful = true;
           vals.error = 'Create new disposition failed, not valid letter.';
-              
-          res.redirect('/dispositions');
+          if (req.api) {
+            res(vals.error);
+          } else {
+            res.redirect('/dispositions');
+          }
         }
       }
     }
@@ -763,6 +806,7 @@ Disposition = module.exports = function(app) {
  
   var decline = function(req, res) {
     if (req.body && req.body.dispositionId && req.body.message) {
+
       var search = {
         search: {
           _id: ObjectID(req.body.dispositionId),
@@ -773,18 +817,34 @@ Disposition = module.exports = function(app) {
           disposition.markAsDeclined(ObjectID(req.body.dispositionId), req.session.currentUser, req.body.message, function(ok) {
             if (ok) {
               notification.set(req.session.currentUser, result[0].sender, req.session.currentUserProfile.fullName + ' menolak disposisi dari Anda.', '/disposition/read/' + req.body.dispositionId + "#recipient-" + req.session.currentUser);
-              res.send(JSON.stringify({result: "OK"}));
+              if (req.api) {
+                res(null);
+              } else {
+                res.send(JSON.stringify({result: "OK"}));
+              }
             } else {
+              if (req.api) {
+                res("error");
+              } else {
               res.send(JSON.stringify({result: "ERROR"}));
+              }
             }
           });
         } else {
+          if (req.api) {
+            res("error");
+          } else {
           res.send(JSON.stringify({result: "ERROR"}));
+          }
         }
       });
 
     } else {
+      if (req.api) {
+        res("error");
+      } else {
       res.send(JSON.stringify({result: "ERROR"}));
+      }
     }
   }
 
@@ -817,23 +877,43 @@ Disposition = module.exports = function(app) {
               sendNotificationComments(req.session.currentUser, result[0].recipients, 0, message, "/disposition/read/" + req.body.dispositionId + "#comments-" + id, function() {
                 if (req.session.currentUser != result[0].sender) {
                   notification.set(req.session.currentUser, result[0].sender, message, "/disposition/read/" + req.body.dispositionId + "#comments-" + id, function() {
-                    res.send(JSON.stringify({result: "OK"}));
+                    if (req.api) {
+                      res(null);
+                    } else {
+                      res.send(JSON.stringify({result: "OK"}));
+                    }
                   })
                 } else {
-                  res.send(JSON.stringify({result: "OK"}));
+                  if (req.api) {
+                    res(null);
+                  } else {
+                    res.send(JSON.stringify({result: "OK"}));
+                  }
                 }
               })
             } else {
-              res.send(JSON.stringify({result: "ERROR"}));
+              if (req.api) {
+                res("ERROR");
+              } else {
+                res.send(JSON.stringify({result: "ERROR"}));
+              }
             }
           });
         } else {
-          res.send(JSON.stringify({result: "ERROR"}));
+          if (req.api) {
+            res("ERROR");
+          } else {
+            res.send(JSON.stringify({result: "ERROR"}));
+          }
         }
       });
 
     } else {
-      res.send(JSON.stringify({result: "ERROR"}));
+      if (req.api) {
+        res("ERROR");
+      } else {
+        res.send(JSON.stringify({result: "ERROR"}));
+      }
     }
   }
 
@@ -864,9 +944,17 @@ Disposition = module.exports = function(app) {
     var message = req.body.message;
     disposition.share(id, sender, recipients, message, function(err, data) {
       if (err) {
-        res.send(400, data);
+        if (req.api) {
+          res(err);
+        } else {
+          res.send(400, data);
+        }
       } else {
-        res.send(data);
+        if (req.api) {
+          res(null);
+        } else {
+          res.send(data);
+        }
       }
     });
   }

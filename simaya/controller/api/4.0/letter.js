@@ -3,8 +3,10 @@ module.exports = function(app){
   var letterAPI = require("../1.0/letter")(app);
   var letterWeb = require("../../letter.js")(app);
   var letter = require("../../../models/letter.js")(app);
-  var cUtils = require("../../utils.js")(app)
-  var orgWeb = require("../../organization.js")(app)
+  var cUtils = require("../../utils.js")(app);
+  var orgWeb = require("../../organization.js")(app);
+  var moment = require("moment");
+  var user = require("../../../../sinergis/models/user.js")(app);
 
   function isValidObjectID(str) {
     str = str + '';
@@ -138,11 +140,15 @@ module.exports = function(app){
    * curl http://ayam.vps1.kodekreatif.co.id/api/2/letters/incomings?access_token=f3fyGRRoKZ...
    */
   var incomings = function (req, res) {
+    if (req.params['params'] === "cc") {
+      req.cc = true;
+    }
     var search = letterWeb.buildSearchForIncoming(req, res);
     search = letterWeb.populateSortForIncoming(req, search);
     search.fields = { title : 1, date : 1, sender : 1, receivingOrganizations : 1, senderManual : 1, readStates : 1};
     search.page = req.query["page"] || 1;
     search.limit = 20;
+    search.sort["creationDate"] = -1;
     list(search, req, res);
   }
 
@@ -167,11 +173,93 @@ module.exports = function(app){
    * curl http://ayam.vps1.kodekreatif.co.id/api/2/letters/outgoings?access_token=f3fyGRRoKZ...
    */
   var outgoings = function (req, res) {
-    var search = letterWeb.buildSearchForOutgoing(req, res); 
-    search.fields = {title: 1, date: 1, sender: 1, receivingOrganizations: 1, senderManual: 1, readStates: 1};
+    req.api = true;
+    var obj = {
+      meta : {},
+      data : []
+    }
+    letterWeb.listOutgoing(req, function(result){
+      if (result == null) {
+        obj.meta.code = 404;
+        obj.meta.errorMessage = "Letters Not Found";
+        return res.send(obj.meta.code, obj);
+      }
+      result.forEach(function(item){
+        // trim the objects
+        data = {
+          _id : item._id,
+          date : moment(item.creationDate).format("DD MMM YYYY"),
+          recipients : item.recipients,
+          title : item.title,
+          sender : item.sender,
+          readStates : item.readStates
+        } 
+        obj.data.push(data);
+      });
+      res.send(obj);
+    });
+  }
+  
+  var outgoingDraft = function (req, res) {
+    var search = {};
     search.page = req.query["page"] || 1;
     search.limit = 20;
-    list(search, req, res);
+    search.sort = {
+      type : "",
+      dir : 0
+    };
+    var obj = {
+      meta : {},
+      data : []
+    }
+    var me = req.session.currentUser;
+    letter.listDraftLetter(me, search, function(err, result){
+      if (result == null) {
+        
+        obj.meta.code = 404;
+        obj.meta.errorMessage = "Letters Not Found";
+        return res.send(obj.meta.code, obj);
+      }
+      result.data.forEach(function(item){
+        // trim the objects
+        data = {
+          _id : item._id,
+          date : moment(item.creationDate).format("DD MMM YYYY"),
+          recipients : item.recipients,
+          title : item.title,
+          sender : item.sender
+        } 
+        obj.data.push(data);
+      });
+      res.send(obj);
+    });
+  }
+  var outgoingCancel = function (req, res) {
+    req.api = true;
+    var obj = {
+      meta : {},
+      data : []
+    }
+    letterWeb.listOutgoingCancel(req, function(result){
+      if (result == null) {
+        obj.meta.code = 404;
+        obj.meta.errorMessage = "Letters Not Found";
+        return res.send(obj.meta.code, obj);
+      }
+      result.letters.forEach(function(item){
+        // trim the objects
+        data = {
+          _id : item._id,
+          date : moment(item.creationDate).format("DD MMM YYYY"),
+          recipients : item.recipients,
+          title : item.title,
+          sender : item.sender,
+          readStates : item.readStates
+        } 
+        obj.data.push(data);
+      });
+      res.send(obj);
+    });
   }
 
   /**
@@ -277,7 +365,6 @@ module.exports = function(app){
       type: sortOptions["string"] || "",
       dir: parseInt(sortOptions["dir"]) || 0
     }
-    console.log(JSON.stringify(req.query, null, "  "));
     if (req.query && req.query.search) {
       options.search = req.query.search;
     }
@@ -288,6 +375,9 @@ module.exports = function(app){
     options.myOrganization = myOrganization;
 
     letter.listIncomingLetter(me, options, function(err, result) {
+      result.data.forEach(function(letter){
+        letter.date = moment(letter.date).format("DD MMM YYYY");
+      });
       res.send(result);
     });
   }
@@ -333,6 +423,9 @@ module.exports = function(app){
     options.fields = {title:1, date:1, sender: 1, receivingOrganizations: 1, senderManual:1, readStates: 1, outgoingAgenda:1};
 
     letter.listOutgoingLetter(me, options, function(err, result) {
+      result.data.forEach(function(letter){
+        letter.date = moment(letter.date).format("DD MMM YYYY");
+      });
       res.send(result);
     });
   }
@@ -393,6 +486,21 @@ module.exports = function(app){
 
   var attachmentStream = function (req, res) {
     // TODO: stream the attachment, depends on its mime type
+    var vals = {};
+    if (req.params.id) {
+      letter.downloadAttachment({
+        protocol: req.protocol,
+        host: req.host,
+        username: req.session.currentUser,
+        id: req.params.id,
+        stream: res,
+        base64 : true,
+      }, function() {
+        res.end();
+      });
+    } else {
+      res.send(500);
+    }
   }
 
   /**
@@ -439,7 +547,6 @@ module.exports = function(app){
         meta: {
         }
       }
-      console.log(data);
       if (data.status == "ERROR" || data.result == "ERROR") {
         obj.meta.code = 400;
         obj.meta.data = "Invalid parameters: " + data.data.error;
@@ -564,7 +671,6 @@ module.exports = function(app){
   var recipientCandidatesSelection = function(req, res) {
     var r = ResWrapperJSONParse(function(vals) {
       if (vals) {
-        console.log(vals);
         var obj = {
           meta: {
             code: 200
@@ -602,7 +708,6 @@ module.exports = function(app){
   var ccCandidatesSelection = function(req, res) {
     var r = ResWrapperJSONParse(function(vals) {
       if (vals) {
-        console.log(vals);
         var obj = {
           meta: {
             code: 200
@@ -639,7 +744,6 @@ module.exports = function(app){
   var reviewerCandidatesSelection = function(req, res) {
     var r = ResWrapperJSONParse(function(vals) {
       if (vals) {
-        console.log(vals);
         var obj = {
           meta: {
             code: 200
@@ -685,7 +789,6 @@ module.exports = function(app){
       } else {
         obj.meta.code = data.code;
       }
-      console.log(data.code);
       res.send(obj);
     });
     letterWeb.reject(req, r);
@@ -725,18 +828,109 @@ module.exports = function(app){
     });
   }
 
+  /**
+   * @api {get} /letters/constant Constant Data
+   * @apiVersion 4.0.0
+   * @apiName GetInitialData
+   * @apiGroup Letters And Agendas
+   * @apiPermission token
+   *
+   * @apiDescription Get constant data such as letterType, security, priority, etc
+   * 
+   * @apiParam {String} access_token The access token
+   * @apiParam {String} page The <code>page-th</code> of result group
+   * @apiParam {String} limit The maximum number of letters per page
+   *
+   * @apiExample URL Structure:
+   * // DEVELOPMENT
+   * http://ayam.vps1.kodekreatif.co.id/api/2/letters/constants
+   * 
+   * @apiExample Example usage:
+   * curl http://ayam.vps1.kodekreatif.co.id/api/2/letters/constants?access_token=f3fyGRRoKZ...
+   */
+  var constants = function(req, res) {
+    var data = {
+      "letterType" : [
+        "Peraturan",
+        "Pedoman",
+        "Petunjuk Pelaksanaan",
+        "Instruksi",
+        "Prosedur Tetap (SOP)",
+        "Surat Edaran",
+        "Keputusan",
+        "Surat Perintah/Surat Tugas",
+        "Nota Dinas",
+        "Memorandum",
+        "Surat Dinas",
+        "Surat Undangan",
+        "Surat Perjanjian",
+        "Surat Kuasa",
+        "Berita Acara",
+        "Surat Keterangan",
+        "Surat Pengantar",
+        "Pengumuman",
+        "Laporan",
+        "Lain-lain"
+      ],
+      "letterPriority" : [
+        "Biasa.success",
+        "Segera.warning",
+        "Sangat segera.danger"
+      ],
+      "letterClassification" : [
+        "Biasa.success",
+        "Rahasia.warning",
+        "Sangat rahasia.danger"
+      ],
+      "letterInstruction" : [
+        "Ditindaklanjuti",
+        "Ditanggapi tertulis",
+        "Disiapkan makalah/sambutan/presentasi sesuai tema",
+        "Koordinasikan dengan",
+        "Diwakili dan laporkan hasilnya",
+        "Dihadiri dan laporkan hasilnya",
+        "Disiapkan surat/memo dinas (internal)",
+        "Arsip",
+        "Lain-lain",
+      ],
+    }
+    res.send(200, {
+      status: {
+        ok: true
+      },
+      data: data
+    });
+  }
 
+  var createLetter = function(req, res) {
+    req.api = true;
+   letterWeb.simpleEdit(req, res);
+  
+  }
+  var attachmentMetadata = function(req, res) {
+    req.api = true;
+    letter.getDocumentMetadata(req.params.id, res);
+  }
+
+  var attachmentRender = function(req, res) {
+    data = req.params[0].split("/");
+    letter.renderDocumentPageBase64(data[0], parseInt(data[1]), res);
+  }
 
 
   return {
     incomings : incomings,
     outgoings : outgoings,
+    outgoingDraft : outgoingDraft,
+    outgoingCancel : outgoingCancel,
     read : read,
     sendLetter: sendLetter,
 
     attachments : attachments,
     attachment : attachment,
     attachmentStream : attachmentStream,
+    attachmentMetadata : attachmentMetadata,
+    attachmentRender : attachmentRender,
 
     agendaIncomings : agendaIncomings,
     agendaOutgoings : agendaOutgoings,
@@ -747,7 +941,8 @@ module.exports = function(app){
     ccCandidatesSelection : ccCandidatesSelection,
     reviewerCandidatesSelection : reviewerCandidatesSelection,
     rejectLetter : rejectLetter,
-
-    linkLetter: linkLetter
+    linkLetter: linkLetter,
+    constants : constants,
+    createLetter : createLetter,
   }
 }

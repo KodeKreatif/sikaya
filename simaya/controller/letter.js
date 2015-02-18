@@ -1243,12 +1243,21 @@ Letter = module.exports = function(app) {
                     }
                   }
                 }
-                utils.render(req, res, template, vals, "base-authenticated");
+                if (req.api) {
+                  res(vals);
+                } else {
+                  utils.render(req, res, template, vals, "base-authenticated");
+                }
               })
             } else {
+              var dispositionController = require("../controller/disposition.js")(app);
               dispositionController.listOutgoingBase(req, res, {}, function(req, res, output) {
                 vals.dispositionsList = output;
-                utils.render(req, res, template, vals, "base-authenticated");
+                if (req.api) {
+                  res(vals);
+                } else {
+                  utils.render(req, res, template, vals, "base-authenticated");
+                }
               })
             }
           }
@@ -1313,7 +1322,6 @@ Letter = module.exports = function(app) {
     }
     return search;
   }
-
   var buildSearchForIncoming = function(req, res) {
     var search = {
       search: {}
@@ -1334,17 +1342,25 @@ Letter = module.exports = function(app) {
       search.search["$or"].push(normalCase);
       search.search["$or"].push(externalCase);
     } else {
-      search.search = {
-        recipients: {
-          $in: [req.session.currentUser]
-        },
+      if (req.cc) {
+        search.search = {
+          ccList: {
+            $in: [req.session.currentUser]
+          },
+        }
+      } else {
+        search.search = {
+          recipients: {
+            $in: [req.session.currentUser]
+          },
+        }
       }
       var o = "receivingOrganizations." + req.session.currentUserProfile.organization + ".status";
       search.search[o] = letter.Stages.RECEIVED;
     }
-
     return search;
   }
+
 
   var listIncomingBase = function(req, res, x, embed) {
     var vals = {
@@ -1489,10 +1505,18 @@ Letter = module.exports = function(app) {
           console.log(req.query.search);
           vals.searchQuery = req.query.search;
         }
-        utils.render(req, res, vals.action, vals, "base-authenticated");
+        if (req.api) {
+          res(result.data);
+        } else {
+          utils.render(req, res, vals.action, vals, "base-authenticated");
+        }
       });
     } else {
-      res.send(404);
+      if (req.api) {
+        res(null);
+      } else {
+        res.send(404);
+      }
     }
   }
 
@@ -2052,6 +2076,9 @@ Letter = module.exports = function(app) {
   }
 
   var reject = function(req, res) {
+    console.log(req.session.currentUser);
+    console.log(req.body.id);
+    console.log(req.body.reason);
     if (req.body.id) {
       var search = {
         search: {
@@ -2529,6 +2556,8 @@ Letter = module.exports = function(app) {
   };
 
   var simpleEdit = function(req, res) {
+    console.log("simpleEdit");
+    console.log(req.body);
     var data = req.body;
 
     data.originator = req.session.currentUser;
@@ -2543,10 +2572,18 @@ Letter = module.exports = function(app) {
     letter.editLetter({_id: ObjectID(data._id)}, data, function(err, result) {
       var done = function(err, result) {
         if (err) {
-          console.log(err)
-          res.send(500, result);
+          console.log(err);
+          if (req.api) {
+            res(err);
+          } else {
+            res.send(500, result);
+          }
         } else {
-          res.send(result);
+          if (req.api) {
+            res(result);
+          } else {
+            res.send(result);
+          }
         }
       }
       if (linkedLetters.length > 0) {
@@ -2601,6 +2638,8 @@ Letter = module.exports = function(app) {
 
   // @api {post} Creates a letter.
   var postLetter = function(req, res) {
+    console.log("post letter");
+    console.log(req.body);
     var data = req.body || {};
 
     if (data.operation == "manual-incoming" && data._id) {
@@ -2674,6 +2713,7 @@ Letter = module.exports = function(app) {
     , viewLetter: viewLetter
     , viewSingleLetter: viewSingleLetter
     , downloadAttachment: downloadAttachment
+    , list: list
     , listIncoming: listIncoming
     , listIncomingBase: listIncomingBase
     , listCc: listCc
@@ -2719,6 +2759,7 @@ Letter = module.exports = function(app) {
     , getContent : getContent
     , allReviewers: allReviewers
     , contentPdf : contentPdf
+    , simpleEdit : simpleEdit
   }
 };
 }
